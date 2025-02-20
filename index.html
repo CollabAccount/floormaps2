@@ -2,61 +2,131 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Motion Tracking with Arrow Direction</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Improved Motion, Step Counter & Trajectory Visualization</title>
   <style>
-    body { font-family: Arial, sans-serif; text-align: center; padding: 20px; }
-    h1 { color: #333; }
-    p { font-size: 18px; }
-    #trajectoryCanvas { border: 1px solid #000; margin-top: 20px; }
-    button { margin-top: 10px; padding: 8px 16px; font-size: 16px; }
+    body {
+      font-family: Arial, sans-serif; 
+      text-align: center; 
+      padding: 20px; 
+      margin: 0;
+    }
+    h1 { color: #333; margin-bottom: 0.5em; }
+    p { font-size: 16px; margin: 0.2em 0; }
+    #status { font-weight: bold; color: blue; margin: 0.5em 0; }
+    #trajectoryCanvas {
+      border: 1px solid #000; 
+      margin-top: 20px;
+      background-color: #f9f9f9;
+    }
+    button {
+      margin-top: 10px; 
+      padding: 8px 16px; 
+      font-size: 16px;
+      cursor: pointer;
+    }
+    #controls {
+      margin: 1em 0;
+    }
   </style>
 </head>
 <body>
-  <h1>Motion Tracking with Direction Arrow</h1>
-  <p><strong>Direction:</strong> <span id="direction">Waiting...</span></p>
-  <p><strong>Steps Counted:</strong> <span id="steps">0</span></p>
-  <button id="reset">Recalibrate Position</button>
+  <h1>Improved Motion, Step Counter, and Trajectory Tracking</h1>
+  
+  <p><strong>Acceleration (Filtered):</strong> 
+    <span id="acceleration">Waiting...</span>
+  </p>
+  <p><strong>Direction (Filtered):</strong> 
+    <span id="direction">Waiting...</span>
+  </p>
+  <p><strong>Estimated Position:</strong> 
+    X=<span id="posX">0</span>, Y=<span id="posY">0</span>
+  </p>
+  <p><strong>Steps Counted:</strong> 
+    <span id="steps">0</span>
+  </p>
+  <p id="status">Initializing sensors...</p>
+
+  <div id="controls">
+    <button id="reset">Recalibrate Position</button>
+    <button id="calibrateHeading">Calibrate Heading</button>
+  </div>
+
   <canvas id="trajectoryCanvas" width="500" height="500"></canvas>
 
+  <!-- Kalman filter library for smoothing orientation -->
   <script src="https://cdn.jsdelivr.net/npm/kalmanjs"></script>
   <script>
     document.addEventListener("DOMContentLoaded", () => {
+      // Check for sensor support
       if (!window.DeviceMotionEvent || !window.DeviceOrientationEvent) {
-        alert("Your device does not support motion tracking!");
+        document.getElementById("status").innerText =
+          "Your device does not support motion/orientation tracking!";
         return;
       }
 
-      const kfGyro = new KalmanFilter();
-
-      let userX = 0, userY = 0;
-      let heading = 0;
+      // ========== Kalman filter for heading ==========
+      // Adjust parameters for more smoothing if needed
+      const kfGyro = new KalmanFilter({ R: 0.01, Q: 3 });
+      
+      // ========== Position & Step Tracking ==========
+      let userX = 0, userY = 0;        // in meters
+      let heading = 0;                // phone's compass heading (0-360)
+      let baseHeading = 0;            // heading calibration offset
+      let useCalibratedHeading = false; // toggle after "Calibrate Heading"
+      
+      // Steps
       let stepCount = 0;
-      const stepLength = 0.7;
-      let lastStepTime = 0;
-      let prevAccZ = 0;
+      const stepLength = 0.7;         // average step length in meters (tweak as needed)
 
-      let trajectoryPoints = [{ x: 0, y: 0 }];
-      const toleranceThreshold = 0.05;
+      // Peak–valley detection variables
+      let peakThreshold = 1.5;        // magnitude above this => potential peak
+      let valleyThreshold = 0.8;      // magnitude below this => potential valley
+      let peakDetected = false;
+      let lastPeakTime = 0;
+      let minStepInterval = 400;      // ms between valid steps
+      
+      // ========== Stationary Detection ==========
+      // We'll track the last ~20 magnitude readings and compute their std dev
+      const motionBufferSize = 20;
+      let motionBuffer = [];
+      let isStationary = true;        // assume stationary until proven otherwise
+      const stationaryStdDevThreshold = 0.3; // tweak for your device
 
+      // ========== Gravity Estimation (for high-pass filtering) ==========
       let gravityX = 0, gravityY = 0, gravityZ = 0;
-      const alpha = 0.9;
+      const alpha = 0.9; // smoothing factor for gravity
 
+      // ========== Trajectory Visualization ==========
+      let trajectoryPoints = [{ x: 0, y: 0 }];
+      const toleranceThreshold = 0.05; // don't add new point if it's within 0.05m
       const canvas = document.getElementById("trajectoryCanvas");
       const ctx = canvas.getContext("2d");
-      const scale = 50;
+      const scale = 50;               // 50 pixels per meter
       const centerX = canvas.width / 2;
       const centerY = canvas.height / 2;
 
+      // ---- Utility to draw trajectory ----
       function drawTrajectory() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        // Draw coordinate axes
+        ctx.beginPath();
+        ctx.strokeStyle = "#ccc";
+        // vertical center line
+        ctx.moveTo(centerX, 0);
+        ctx.lineTo(centerX, canvas.height);
+        // horizontal center line
+        ctx.moveTo(0, centerY);
+        ctx.lineTo(canvas.width, centerY);
+        ctx.stroke();
 
-        // Draw path
+        // Draw the path in red
         ctx.beginPath();
         ctx.strokeStyle = "red";
         trajectoryPoints.forEach((pt, index) => {
           let px = centerX + pt.x * scale;
-          let py = centerY - pt.y * scale;
+          let py = centerY - pt.y * scale; // invert y so up is positive
           if (index === 0) {
             ctx.moveTo(px, py);
           } else {
@@ -65,106 +135,151 @@
         });
         ctx.stroke();
 
-        // Draw improved arrow
-        drawArrow(
-          centerX + userX * scale,
-          centerY - userY * scale,
-          heading
-        );
+        // Draw points in blue
+        trajectoryPoints.forEach((pt) => {
+          let px = centerX + pt.x * scale;
+          let py = centerY - pt.y * scale;
+          ctx.beginPath();
+          ctx.arc(px, py, 3, 0, 2 * Math.PI);
+          ctx.fillStyle = "blue";
+          ctx.fill();
+        });
       }
 
-      function drawArrow(x, y, angle) {
-        const arrowWidth = 20;
-        const arrowHeight = 30;
-
-        ctx.save();
-        ctx.translate(x, y);
-        ctx.rotate((angle * Math.PI) / 180);
-
-        ctx.beginPath();
-        ctx.moveTo(0, -arrowHeight);  // Tip of arrow
-        ctx.lineTo(-arrowWidth / 2, arrowHeight / 2);  // Left bottom
-        ctx.lineTo(-5, arrowHeight / 2);  // Left inner
-        ctx.lineTo(0, arrowHeight / 3);  // Middle cut
-        ctx.lineTo(5, arrowHeight / 2);  // Right inner
-        ctx.lineTo(arrowWidth / 2, arrowHeight / 2);  // Right bottom
-        ctx.closePath();
-
-        ctx.fillStyle = "blue";
-        ctx.fill();
-        ctx.restore();
-      }
-
+      // ---- Check if two points are close enough ----
       function isCloseEnough(x1, y1, x2, y2) {
-        return Math.hypot(x2 - x1, y2 - y1) < toleranceThreshold;
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        return Math.sqrt(dx * dx + dy * dy) < toleranceThreshold;
       }
 
-      function isActualMovement(linearAccZ) {
-        return Math.abs(linearAccZ - prevAccZ) < 0.5;
+      // ---- Compute standard deviation of an array ----
+      function computeStdDev(arr) {
+        if (arr.length === 0) return 0;
+        const mean = arr.reduce((a,b) => a + b, 0) / arr.length;
+        const variance = arr.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / arr.length;
+        return Math.sqrt(variance);
       }
 
+      // ---- DeviceMotion: Step + Stationary detection ----
       window.addEventListener("devicemotion", (event) => {
         const rawAccX = event.accelerationIncludingGravity.x || 0;
         const rawAccY = event.accelerationIncludingGravity.y || 0;
         const rawAccZ = event.accelerationIncludingGravity.z || 0;
 
+        // 1) Estimate gravity via low-pass
         gravityX = alpha * gravityX + (1 - alpha) * rawAccX;
         gravityY = alpha * gravityY + (1 - alpha) * rawAccY;
         gravityZ = alpha * gravityZ + (1 - alpha) * rawAccZ;
 
+        // 2) Linear acceleration
         const linearAccX = rawAccX - gravityX;
         const linearAccY = rawAccY - gravityY;
         const linearAccZ = rawAccZ - gravityZ;
 
-        const movement = Math.sqrt(linearAccX ** 2 + linearAccY ** 2);
+        // 3) Magnitude of linear acceleration
+        const magnitude = Math.sqrt(
+          linearAccX * linearAccX +
+          linearAccY * linearAccY +
+          linearAccZ * linearAccZ
+        );
 
-        const currentTime = Date.now();
+        // 4) Update motion buffer & check if stationary
+        motionBuffer.push(magnitude);
+        if (motionBuffer.length > motionBufferSize) {
+          motionBuffer.shift();
+        }
+        const stdDev = computeStdDev(motionBuffer);
+        // if standard deviation is low, assume no real motion
+        isStationary = (stdDev < stationaryStdDevThreshold);
 
-        if (
-          movement > 1.2 &&
-          currentTime - lastStepTime > 500 &&
-          isActualMovement(linearAccZ)
-        ) {
-          stepCount++;
-          lastStepTime = currentTime;
-
-          const adjustedHeading = heading - (screen.orientation.angle || 0);
-          const newX = userX + stepLength * Math.cos(adjustedHeading * (Math.PI / 180));
-          const newY = userY + stepLength * Math.sin(adjustedHeading * (Math.PI / 180));
-
-          if (!isCloseEnough(userX, userY, newX, newY)) {
-            userX = newX;
-            userY = newY;
-            trajectoryPoints.push({ x: userX, y: userY });
-          } else {
-            userX = trajectoryPoints[trajectoryPoints.length - 1].x;
-            userY = trajectoryPoints[trajectoryPoints.length - 1].y;
+        // 5) If not stationary, run step detection
+        const currentTime = performance.now();
+        if (!isStationary) {
+          // Peak–valley detection
+          if (!peakDetected && magnitude > peakThreshold) {
+            peakDetected = true; // we have a potential peak
           }
+          else if (peakDetected && magnitude < valleyThreshold) {
+            // check time since last peak
+            if (currentTime - lastPeakTime > minStepInterval) {
+              stepCount++;
+              lastPeakTime = currentTime;
 
-          drawTrajectory();
+              // Calculate heading to use (subtract calibration offset if active)
+              let usedHeading = useCalibratedHeading 
+                                ? (heading - baseHeading) 
+                                : heading;
+              // normalize to [0, 360) or [-180,180) if you prefer
+              usedHeading = (usedHeading + 360) % 360;
 
-          document.getElementById("steps").innerText = stepCount;
+              // Convert to radians
+              const rad = usedHeading * (Math.PI / 180);
+
+              // Move user position
+              userX += stepLength * Math.cos(rad);
+              userY += stepLength * Math.sin(rad);
+
+              // Add new trajectory point if it's not super close
+              const lastPoint = trajectoryPoints[trajectoryPoints.length - 1];
+              if (!isCloseEnough(lastPoint.x, lastPoint.y, userX, userY)) {
+                trajectoryPoints.push({ x: userX, y: userY });
+                drawTrajectory();
+              }
+
+              // Update UI
+              document.getElementById("steps").innerText = stepCount;
+              document.getElementById("posX").innerText = userX.toFixed(2);
+              document.getElementById("posY").innerText = userY.toFixed(2);
+            }
+            // reset the peak detection
+            peakDetected = false;
+          }
         }
 
-        prevAccZ = linearAccZ;
+        // Update UI for acceleration
+        document.getElementById("acceleration").innerText =
+          `X=${linearAccX.toFixed(2)}, Y=${linearAccY.toFixed(2)}, Z=${linearAccZ.toFixed(2)}`;
+        
+        // Show whether we consider the user stationary
+        document.getElementById("status").innerText = 
+          isStationary 
+            ? "User is stationary (no real steps detected)."
+            : "Sensors are active! (Walking/moving)";
       });
 
+      // ---- DeviceOrientation: get compass heading ----
       window.addEventListener("deviceorientation", (event) => {
-        heading = kfGyro.filter(event.alpha || 0);
+        // alpha is compass direction in degrees [0..360), but can vary by device
+        const rawHeading = event.alpha || 0;
+        heading = kfGyro.filter(rawHeading);
         document.getElementById("direction").innerText = `${heading.toFixed(2)}°`;
-
-        drawTrajectory();
       });
 
+      // ---- Reset button: re-center position ----
       document.getElementById("reset").addEventListener("click", () => {
         userX = 0;
         userY = 0;
         stepCount = 0;
         trajectoryPoints = [{ x: 0, y: 0 }];
+        peakDetected = false;
+        lastPeakTime = 0;
         drawTrajectory();
+
         document.getElementById("steps").innerText = "0";
+        document.getElementById("posX").innerText = "0";
+        document.getElementById("posY").innerText = "0";
       });
 
+      // ---- Calibrate Heading: let user set the current phone orientation as 0° ----
+      document.getElementById("calibrateHeading").addEventListener("click", () => {
+        baseHeading = heading;  // store the current heading as baseline
+        useCalibratedHeading = true;
+        alert("Heading calibrated! The current phone direction is now treated as 0°.");
+      });
+
+      // ---- Initial draw and status ----
+      document.getElementById("status").innerText = "Sensors are active!";
       drawTrajectory();
     });
   </script>
