@@ -236,34 +236,12 @@
     });
     
     // C) Device orientation: update sensor heading.
-    // window.addEventListener("deviceorientation", (event) => {
-    //   const rawHeading = event.alpha || 0;
-    //   heading = headingKF.filter(rawHeading);
-    //   document.getElementById("headingDeg").innerText = heading.toFixed(2);
-    //   drawEverything();
-    // });
-
-    if ("geolocation" in navigator) {
-  navigator.geolocation.watchPosition(
-    (position) => {
-    heading = position.coords.heading; // Get heading in degrees (0-360)
-
-      if (heading === null) {
-        console.log("Heading not available. Device might be stationary.");
-      } else {
-        console.log(`GPS Heading: ${heading.toFixed(2)}°`);
-        document.getElementById("headingDeg").innerText = heading.toFixed(2);
-        drawEverything(); // Call your UI update function
-      }
-    },
-    (error) => {
-      console.error("Error getting location:", error);
-    },
-    { enableHighAccuracy: true, maximumAge: 1000, timeout: 5000 }
-  );
-} else {
-  console.log("Geolocation is not supported in this browser.");
-}
+    window.addEventListener("deviceorientation", (event) => {
+      const rawHeading = event.alpha || 0;
+      heading = headingKF.filter(rawHeading);
+      document.getElementById("headingDeg").innerText = heading.toFixed(2);
+      drawEverything();
+    });
     
     // D) Device motion: step detection and update movement.
     window.addEventListener("devicemotion", (event) => {
