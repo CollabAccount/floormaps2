@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Floor Plan Trajectory with Step Tracking</title>
+  <title>Floor Plan Live Tracking (Reduced Noise + Direction Fix)</title>
   <style>
     body {
       margin: 0;
@@ -45,12 +45,15 @@
 <body>
   <h1>Floor Plan Live Tracking</h1>
   <div id="info">
-    Click on the floor plan to set your <strong>starting position</strong>.<br/>
-    Then move with your device in hand to see live tracking and heading.
+    1) Click on the floor plan to set your <strong>starting position</strong>.<br/>
+    2) Move around with your device to see live tracking and heading.<br/>
+    3) If heading is reversed, use "Calibrate Heading" or adjust code (see notes).
   </div>
 
+  <!-- Canvas for floor plan and live drawing -->
   <canvas id="floorCanvas" width="800" height="600"></canvas>
   
+  <!-- Stats & Controls -->
   <div id="stats">
     <p><strong>Steps:</strong> <span id="stepsCount">0</span></p>
     <p><strong>Heading:</strong> <span id="headingDeg">0</span>°</p>
@@ -72,69 +75,79 @@
   <script src="https://cdn.jsdelivr.net/npm/kalmanjs"></script>
 
   <script>
-    /********************************************************************
+    /********************************************************
      * 1) LOAD THE FLOOR PLAN IMAGE INTO THE CANVAS
-     ********************************************************************/
+     ********************************************************/
     const canvas = document.getElementById("floorCanvas");
     const ctx = canvas.getContext("2d");
 
-    // Replace this with your own floor plan image path if needed:
+    // Replace "image.png" with the path to your floor plan image:
     const floorPlanSrc = "image.png"; 
     const floorPlan = new Image();
     floorPlan.src = floorPlanSrc;
 
-    // We'll draw this image each time we update the canvas
     function drawFloorPlan() {
       ctx.drawImage(floorPlan, 0, 0, canvas.width, canvas.height);
     }
 
-    /********************************************************************
+    /********************************************************
      * 2) USER POSITION, STEP DETECTION, AND TRAJECTORY
-     ********************************************************************/
-    let userX = null;    // in canvas pixels
-    let userY = null;    // in canvas pixels
-    let heading = 0;     // device orientation in degrees
-    let baseHeading = 0; // heading offset for calibration
+     ********************************************************/
+    let userX = null;         // in canvas pixels
+    let userY = null;         // in canvas pixels
+    let heading = 0;          // device orientation in degrees
+    let baseHeading = 0;      // heading offset for calibration
     let useCalibratedHeading = false;
 
-    // Trajectory storage
+    // Trajectory
     let trajectoryPoints = []; // array of {x, y} in canvas coords
 
-    // Step detection variables (peak–valley approach)
+    // Step detection (peak–valley)
     let stepCount = 0;
     const stepLengthMeters = 0.7;     // average step length in meters
-    const pixelsPerMeter = 5;        // scale factor (adjust to match image scale)
-    const stepThresholdHigh = 1.5;    // threshold for "peak"
-    const stepThresholdLow = 0.8;     // threshold for "valley"
+    const pixelsPerMeter = 5;        // scale factor for your floor plan
+    let stepThresholdHigh = 2.0;      // "peak" threshold
+    let stepThresholdLow = 1.0;       // "valley" threshold
     let peakDetected = false;
     let lastPeakTime = 0;
-    let minStepInterval = 400;        // ms between steps
+    let minStepInterval = 500;        // ms between steps
 
-    // Gravity estimation for high-pass filtering
+    // Gravity for high-pass filtering
     let gravityX = 0, gravityY = 0, gravityZ = 0;
     const alpha = 0.9;
 
-    // For simpler code, we skip advanced "stationary detection" here,
-    // but you can adapt from earlier examples if desired.
+    // Stationary detection
+    const motionBufferSize = 20;
+    let motionBuffer = [];
+    let isStationary = true;
+    const stationaryStdDevThreshold = 0.3; // tweak as needed
 
-    // Kalman filter for smoothing heading
+    // Simple function to compute std dev
+    function computeStdDev(arr) {
+      if (!arr.length) return 0;
+      const mean = arr.reduce((a,b) => a + b, 0) / arr.length;
+      const variance = arr.reduce((sum, val) => sum + (val - mean) ** 2, 0) / arr.length;
+      return Math.sqrt(variance);
+    }
+
+    // Kalman filter for heading
     const headingKF = new KalmanFilter({ R: 0.01, Q: 3 });
 
-    /********************************************************************
+    /********************************************************
      * 3) DRAWING FUNCTIONS
-     ********************************************************************/
+     ********************************************************/
     function drawEverything() {
-      // 1) Clear and draw the floor plan
+      // 1) Floor plan
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       drawFloorPlan();
 
-      // 2) Draw the trajectory line
+      // 2) Trajectory line
       if (trajectoryPoints.length > 1) {
         ctx.beginPath();
         ctx.strokeStyle = "red";
         ctx.lineWidth = 2;
         for (let i = 0; i < trajectoryPoints.length; i++) {
-          let pt = trajectoryPoints[i];
+          const pt = trajectoryPoints[i];
           if (i === 0) {
             ctx.moveTo(pt.x, pt.y);
           } else {
@@ -144,26 +157,29 @@
         ctx.stroke();
       }
 
-      // 3) Draw the current position + direction arrow
+      // 3) Current position + heading arrow
       if (userX !== null && userY !== null) {
-        // Draw a small dot
+        // Red dot for position
         ctx.beginPath();
         ctx.arc(userX, userY, 5, 0, 2 * Math.PI);
         ctx.fillStyle = "red";
         ctx.fill();
 
-        // Draw heading arrow
-        // Adjust heading if calibrated
-        let usedHeading = useCalibratedHeading ? (heading - baseHeading) : heading;
-        usedHeading = (usedHeading + 360) % 360; // normalize 0..360
-        let rad = usedHeading * Math.PI / 180;
+        // Arrow for heading
+        // Flip direction if needed:
+        let usedHeading = useCalibratedHeading 
+                          ? (heading - baseHeading) 
+                          : heading;
+        // Invert if your arrow is reversed:
+        usedHeading = (360 - usedHeading + 360) % 360; 
 
-        // arrow length in pixels
-        const arrowLen = 30;
-        let arrowX = userX + arrowLen * Math.cos(rad);
-        let arrowY = userY + arrowLen * Math.sin(rad);
+        const rad = usedHeading * Math.PI / 180;
+        const arrowLen = 30; // in pixels
 
-        // Draw line for arrow
+        const arrowX = userX + arrowLen * Math.cos(rad);
+        const arrowY = userY + arrowLen * Math.sin(rad);
+
+        // Draw arrow line
         ctx.beginPath();
         ctx.moveTo(userX, userY);
         ctx.lineTo(arrowX, arrowY);
@@ -171,7 +187,7 @@
         ctx.lineWidth = 2;
         ctx.stroke();
 
-        // Optional: arrowhead
+        // Small arrowhead
         ctx.beginPath();
         ctx.moveTo(arrowX, arrowY);
         ctx.lineTo(
@@ -188,111 +204,114 @@
       }
     }
 
-    // Add a new point to the trajectory if it differs enough
+    // Add a new point if it's sufficiently far from the last
     function addTrajectoryPoint(x, y) {
-      // Only add if we have a previous point or it's the first time
-      if (trajectoryPoints.length === 0) {
+      if (!trajectoryPoints.length) {
         trajectoryPoints.push({ x, y });
         return;
       }
-      let last = trajectoryPoints[trajectoryPoints.length - 1];
-      let dx = x - last.x;
-      let dy = y - last.y;
-      if (Math.sqrt(dx*dx + dy*dy) > 2) { 
-        // only add if >2px from last point (to reduce clutter)
+      const last = trajectoryPoints[trajectoryPoints.length - 1];
+      const dx = x - last.x;
+      const dy = y - last.y;
+      if (Math.sqrt(dx * dx + dy * dy) > 2) {
         trajectoryPoints.push({ x, y });
       }
     }
 
-    /********************************************************************
+    /********************************************************
      * 4) EVENT LISTENERS
-     ********************************************************************/
-
-    // A) LOAD IMAGE, then draw
+     ********************************************************/
+    // A) LOAD IMAGE => draw once
     floorPlan.onload = function() {
       drawEverything();
     };
 
-    // B) CLICK CANVAS TO SET STARTING POSITION
-    canvas.addEventListener("click", function(e) {
+    // B) CLICK CANVAS => set starting position
+    canvas.addEventListener("click", (e) => {
       const rect = canvas.getBoundingClientRect();
       userX = e.clientX - rect.left;
       userY = e.clientY - rect.top;
 
-      // Reset trajectory to start from here
+      stepCount = 0;
       trajectoryPoints = [];
       addTrajectoryPoint(userX, userY);
 
       drawEverything();
     });
 
-    // C) DEVICE ORIENTATION -> get heading
+    // C) DEVICE ORIENTATION => get heading
     window.addEventListener("deviceorientation", (event) => {
-      // alpha: 0..360, but can vary by device
-      let rawHeading = event.alpha || 0;
+      const rawHeading = event.alpha || 0;
       heading = headingKF.filter(rawHeading);
       document.getElementById("headingDeg").innerText = heading.toFixed(2);
     });
 
-    // D) DEVICE MOTION -> step detection
+    // D) DEVICE MOTION => step detection + stationary detection
     window.addEventListener("devicemotion", (event) => {
-      if (userX === null || userY === null) {
-        // If user hasn't clicked to set starting position, do nothing
-        return;
-      }
+      // If user hasn't set starting position, ignore
+      if (userX === null || userY === null) return;
 
-      // 1) gravity removal
-      let rawX = event.accelerationIncludingGravity.x || 0;
-      let rawY = event.accelerationIncludingGravity.y || 0;
-      let rawZ = event.accelerationIncludingGravity.z || 0;
+      // 1) Gravity removal
+      const rawX = event.accelerationIncludingGravity.x || 0;
+      const rawY = event.accelerationIncludingGravity.y || 0;
+      const rawZ = event.accelerationIncludingGravity.z || 0;
 
       gravityX = alpha * gravityX + (1 - alpha) * rawX;
       gravityY = alpha * gravityY + (1 - alpha) * rawY;
       gravityZ = alpha * gravityZ + (1 - alpha) * rawZ;
 
-      let linX = rawX - gravityX;
-      let linY = rawY - gravityY;
-      let linZ = rawZ - gravityZ;
+      const linX = rawX - gravityX;
+      const linY = rawY - gravityY;
+      const linZ = rawZ - gravityZ;
 
-      // 2) magnitude
-      let magnitude = Math.sqrt(linX*linX + linY*linY + linZ*linZ);
+      // 2) Magnitude + motion buffer
+      const magnitude = Math.sqrt(linX*linX + linY*linY + linZ*linZ);
+      motionBuffer.push(magnitude);
+      if (motionBuffer.length > motionBufferSize) {
+        motionBuffer.shift();
+      }
+      const stdDev = computeStdDev(motionBuffer);
+      isStationary = (stdDev < stationaryStdDevThreshold);
 
-      // 3) step detection (peak–valley)
-      let now = performance.now();
-      if (!peakDetected && magnitude > stepThresholdHigh) {
-        peakDetected = true;
-      } else if (peakDetected && magnitude < stepThresholdLow) {
-        if (now - lastPeakTime > minStepInterval) {
-          stepCount++;
-          document.getElementById("stepsCount").innerText = stepCount;
+      // 3) Step detection if not stationary
+      const now = performance.now();
+      if (!isStationary) {
+        if (!peakDetected && magnitude > stepThresholdHigh) {
+          peakDetected = true;
+        } else if (peakDetected && magnitude < stepThresholdLow) {
+          if (now - lastPeakTime > minStepInterval) {
+            stepCount++;
+            document.getElementById("stepsCount").innerText = stepCount;
 
-          // Move user in canvas coords
-          //  - Convert heading to radians
-          let usedHeading = useCalibratedHeading ? (heading - baseHeading) : heading;
-          usedHeading = (usedHeading + 360) % 360;
-          let rad = usedHeading * Math.PI / 180;
+            // Move user
+            let usedHeading = useCalibratedHeading 
+                              ? (heading - baseHeading) 
+                              : heading;
+            usedHeading = (360 - usedHeading + 360) % 360; // flip if needed
+            const rad = usedHeading * Math.PI / 180;
 
-          // stepLength in pixels
-          let stepLengthPx = stepLengthMeters * pixelsPerMeter;
-          userX += stepLengthPx * Math.cos(rad);
-          userY += stepLengthPx * Math.sin(rad);
+            const stepPx = stepLengthMeters * pixelsPerMeter;
+            userX += stepPx * Math.cos(rad);
+            userY += stepPx * Math.sin(rad);
 
-          // Save trajectory point
-          addTrajectoryPoint(userX, userY);
+            addTrajectoryPoint(userX, userY);
+            document.getElementById("posX").innerText = userX.toFixed(1);
+            document.getElementById("posY").innerText = userY.toFixed(1);
 
-          // Update stats
-          document.getElementById("posX").innerText = userX.toFixed(1);
-          document.getElementById("posY").innerText = userY.toFixed(1);
-
-          lastPeakTime = now;
+            lastPeakTime = now;
+          }
+          peakDetected = false;
         }
-        peakDetected = false;
       }
 
-      // 4) Update displayed acceleration
+      // 4) Update UI
       document.getElementById("accX").innerText = linX.toFixed(2);
       document.getElementById("accY").innerText = linY.toFixed(2);
       document.getElementById("accZ").innerText = linZ.toFixed(2);
+
+      document.getElementById("status").innerText = isStationary
+        ? "Stationary (No real steps)."
+        : "Moving...";
 
       // 5) Redraw
       drawEverything();
@@ -306,6 +325,8 @@
       trajectoryPoints = [];
       peakDetected = false;
       lastPeakTime = 0;
+      motionBuffer = [];
+      isStationary = true;
       document.getElementById("stepsCount").innerText = "0";
       document.getElementById("posX").innerText = "0";
       document.getElementById("posY").innerText = "0";
@@ -316,10 +337,10 @@
     document.getElementById("calibrateBtn").addEventListener("click", () => {
       baseHeading = heading;
       useCalibratedHeading = true;
-      alert("Heading calibrated! Current device orientation is now treated as 0°.");
+      alert("Heading calibrated! Current orientation is now considered 0°.");
     });
 
-    // Just set initial status
+    // Initial status
     document.getElementById("status").innerText = "Waiting for sensor data...";
   </script>
 </body>
