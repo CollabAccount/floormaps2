@@ -45,7 +45,7 @@
   <div id="info">
     1) Click on the floor plan to set your <strong>starting position</strong>.<br/>
     2) Your cursor (arrow) always points upward while the map auto-rotates based on your device's heading (like Google Maps).<br/>
-    3) Steps move you forward along your current heading.
+    3) Steps move you forward along the direction of the arrow.
   </div>
 
   <!-- Canvas for floor plan and live drawing -->
@@ -76,7 +76,7 @@
      ********************************************************/
     const canvas = document.getElementById("floorCanvas");
     const ctx = canvas.getContext("2d");
-    const floorPlanSrc = "image.png"; // Replace with your image path.
+    const floorPlanSrc = "image.png"; // Replace with your floor plan image path.
     const floorPlan = new Image();
     floorPlan.src = floorPlanSrc;
     function drawFloorPlan() {
@@ -130,14 +130,12 @@
     function drawEverything() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       
-      // If starting position is set, rotate the map based on sensor heading.
+      // If a starting position is set, we rotate the map so that the fixed arrow remains upward.
       if (userX !== null && userY !== null) {
         ctx.save();
-        // Compute rotation angle as negative sensor heading (in radians)
+        // Rotate map by -heading so that the fixed arrow (drawn at the center) always points up.
         let rotationAngle = - heading * Math.PI / 180;
-        // Translate context to canvas center.
-        ctx.translate(canvas.width / 2, canvas.height / 2);
-        // Rotate the map so that the fixed arrow remains pointing up.
+        ctx.translate(canvas.width/2, canvas.height/2);
         ctx.rotate(rotationAngle);
         // Translate so that the user's world coordinate appears at the center.
         ctx.translate(-userX, -userY);
@@ -163,8 +161,8 @@
     }
     
     function drawArrowAtCenter() {
-      const centerX = canvas.width / 2;
-      const centerY = canvas.height / 2;
+      const centerX = canvas.width/2;
+      const centerY = canvas.height/2;
       const arrowLen = 15;
       ctx.save();
       ctx.beginPath();
@@ -211,7 +209,7 @@
       drawEverything();
     });
     
-    // D) Device motion: step detection and movement update.
+    // D) Device motion: step detection and update movement.
     window.addEventListener("devicemotion", (event) => {
       if (userX === null || userY === null) return;
       
@@ -227,7 +225,7 @@
       const linY = rawY - gravityY;
       const linZ = rawZ - gravityZ;
       
-      const magnitude = Math.sqrt(linX * linX + linY * linY + linZ * linZ);
+      const magnitude = Math.sqrt(linX*linX + linY*linY + linZ*linZ);
       motionBuffer.push(magnitude);
       if (motionBuffer.length > motionBufferSize) motionBuffer.shift();
       const stdDev = computeStdDev(motionBuffer);
@@ -241,11 +239,16 @@
           if (now - lastPeakTime > minStepInterval) {
             stepCount++;
             document.getElementById("stepsCount").innerText = stepCount;
-            // Use sensor heading directly for movement.
-            const rad = heading * Math.PI / 180;
             const stepPx = stepLengthMeters * pixelsPerMeter;
-            userX += stepPx * Math.cos(rad);
-            userY += stepPx * Math.sin(rad);
+            // Use sensor heading for movement.
+            // To make the displacement appear "forward" in the rotated view,
+            // we update world coordinates as follows:
+            // When heading = 0 (north): move upward => userY decreases.
+            // When heading = 90 (east): move right => userX increases.
+            // Thus, update: dx = stepPx * sin(heading) and dy = - stepPx * cos(heading).
+            const rad = heading * Math.PI / 180;
+            userX += stepPx * Math.sin(rad);
+            userY += - stepPx * Math.cos(rad);
             trajectoryPoints.push({ x: userX, y: userY });
             document.getElementById("offsetX").innerText = userX.toFixed(1);
             document.getElementById("offsetY").innerText = userY.toFixed(1);
