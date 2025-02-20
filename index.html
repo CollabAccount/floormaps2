@@ -1,0 +1,141 @@
+<script>
+  document.addEventListener("DOMContentLoaded", () => {
+    if (!window.DeviceMotionEvent || !window.DeviceOrientationEvent) {
+      document.getElementById("status").innerText =
+        "Your device does not support motion tracking!";
+      return;
+    }
+
+    const kfGyro = new KalmanFilter();
+
+    let userX = 0, userY = 0;
+    let heading = 0;
+    let stepCount = 0;
+    const stepLength = 0.7;
+    let lastStepTime = 0;
+    let prevAccZ = 0; // To compare acceleration changes
+
+    let trajectoryPoints = [{ x: 0, y: 0 }];
+    const toleranceThreshold = 0.05;
+
+    let gravityX = 0, gravityY = 0, gravityZ = 0;
+    const alpha = 0.9;
+
+    const canvas = document.getElementById("trajectoryCanvas");
+    const ctx = canvas.getContext("2d");
+    const scale = 50;
+    const centerX = canvas.width / 2;
+    const centerY = canvas.height / 2;
+
+    function drawTrajectory() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.beginPath();
+      ctx.strokeStyle = "#ccc";
+      ctx.moveTo(centerX, 0);
+      ctx.lineTo(centerX, canvas.height);
+      ctx.moveTo(0, centerY);
+      ctx.lineTo(canvas.width, centerY);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.strokeStyle = "red";
+      trajectoryPoints.forEach((pt, index) => {
+        let px = centerX + pt.x * scale;
+        let py = centerY - pt.y * scale;
+        if (index === 0) {
+          ctx.moveTo(px, py);
+        } else {
+          ctx.lineTo(px, py);
+        }
+      });
+      ctx.stroke();
+
+      trajectoryPoints.forEach((pt) => {
+        let px = centerX + pt.x * scale;
+        let py = centerY - pt.y * scale;
+        ctx.beginPath();
+        ctx.arc(px, py, 3, 0, 2 * Math.PI);
+        ctx.fillStyle = "blue";
+        ctx.fill();
+      });
+    }
+
+    function isCloseEnough(x1, y1, x2, y2) {
+      return Math.hypot(x2 - x1, y2 - y1) < toleranceThreshold;
+    }
+
+    function isActualMovement(linearAccZ) {
+      return Math.abs(linearAccZ - prevAccZ) < 0.5;
+    }
+
+    window.addEventListener("devicemotion", (event) => {
+      const rawAccX = event.accelerationIncludingGravity.x || 0;
+      const rawAccY = event.accelerationIncludingGravity.y || 0;
+      const rawAccZ = event.accelerationIncludingGravity.z || 0;
+
+      gravityX = alpha * gravityX + (1 - alpha) * rawAccX;
+      gravityY = alpha * gravityY + (1 - alpha) * rawAccY;
+      gravityZ = alpha * gravityZ + (1 - alpha) * rawAccZ;
+
+      const linearAccX = rawAccX - gravityX;
+      const linearAccY = rawAccY - gravityY;
+      const linearAccZ = rawAccZ - gravityZ;
+
+      const movement = Math.sqrt(linearAccX ** 2 + linearAccY ** 2);
+
+      const currentTime = Date.now();
+
+      if (
+        movement > 1.2 &&
+        currentTime - lastStepTime > 500 &&
+        isActualMovement(linearAccZ)
+      ) {
+        stepCount++;
+        lastStepTime = currentTime;
+
+        const adjustedHeading = heading - (screen.orientation.angle || 0);
+        const newX = userX + stepLength * Math.cos(adjustedHeading * (Math.PI / 180));
+        const newY = userY + stepLength * Math.sin(adjustedHeading * (Math.PI / 180));
+
+        if (!isCloseEnough(userX, userY, newX, newY)) {
+          userX = newX;
+          userY = newY;
+          trajectoryPoints.push({ x: userX, y: userY });
+        } else {
+          userX = trajectoryPoints[trajectoryPoints.length - 1].x;
+          userY = trajectoryPoints[trajectoryPoints.length - 1].y;
+        }
+
+        drawTrajectory();
+
+        document.getElementById("steps").innerText = stepCount;
+        document.getElementById("posX").innerText = userX.toFixed(2);
+        document.getElementById("posY").innerText = userY.toFixed(2);
+      }
+
+      prevAccZ = linearAccZ;
+
+      document.getElementById("acceleration").innerText =
+        `X=${linearAccX.toFixed(2)}, Y=${linearAccY.toFixed(2)}, Z=${linearAccZ.toFixed(2)}`;
+    });
+
+    window.addEventListener("deviceorientation", (event) => {
+      heading = kfGyro.filter(event.alpha || 0);
+      document.getElementById("direction").innerText = `${heading.toFixed(2)}°`;
+    });
+
+    document.getElementById("reset").addEventListener("click", () => {
+      userX = 0;
+      userY = 0;
+      stepCount = 0;
+      trajectoryPoints = [{ x: 0, y: 0 }];
+      drawTrajectory();
+      document.getElementById("steps").innerText = "0";
+      document.getElementById("posX").innerText = "0";
+      document.getElementById("posY").innerText = "0";
+    });
+
+    document.getElementById("status").innerText = "Sensors are active!";
+    drawTrajectory();
+  });
+</script>
