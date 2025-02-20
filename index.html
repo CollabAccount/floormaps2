@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Floor Plan Live Tracking (Reduced Noise  Direction Fix)</title>
+  <title>Floor Plan Live Tracking (Reduced Noise + Direction Fix)</title>
   <style>
     body {
       margin: 0;
@@ -125,8 +125,8 @@
     // Simple function to compute std dev
     function computeStdDev(arr) {
       if (!arr.length) return 0;
-      const mean = arr.reduce((a,b) => a  b, 0) / arr.length;
-      const variance = arr.reduce((sum, val) => sum  (val - mean) ** 2, 0) / arr.length;
+      const mean = arr.reduce((a,b) => a + b, 0) / arr.length;
+      const variance = arr.reduce((sum, val) => sum + (val - mean) ** 2, 0) / arr.length;
       return Math.sqrt(variance);
     }
 
@@ -146,7 +146,7 @@
         ctx.beginPath();
         ctx.strokeStyle = "red";
         ctx.lineWidth = 2;
-        for (let i = 0; i < trajectoryPoints.length; i) {
+        for (let i = 0; i < trajectoryPoints.length; i++) {
           const pt = trajectoryPoints[i];
           if (i === 0) {
             ctx.moveTo(pt.x, pt.y);
@@ -157,7 +157,7 @@
         ctx.stroke();
       }
 
-      // 3) Current position  heading arrow
+      // 3) Current position + heading arrow
       if (userX !== null && userY !== null) {
         // Red dot for position
         ctx.beginPath();
@@ -171,13 +171,13 @@
                           ? (heading - baseHeading) 
                           : heading;
         // Invert if your arrow is reversed:
-        usedHeading = (360 - usedHeading  360) % 360; 
+        usedHeading = (360 - usedHeading + 360) % 360; 
 
         const rad = usedHeading * Math.PI / 180;
         const arrowLen = 15; // in pixels
 
-        const arrowX = userX  arrowLen * Math.cos(rad);
-        const arrowY = userY  arrowLen * Math.sin(rad);
+        const arrowX = userX + arrowLen * Math.cos(rad);
+        const arrowY = userY + arrowLen * Math.sin(rad);
 
         // Draw arrow line
         ctx.beginPath();
@@ -195,8 +195,8 @@
           arrowY - 5 * Math.sin(rad - Math.PI / 6)
         );
         ctx.lineTo(
-          arrowX - 5 * Math.cos(rad  Math.PI / 6),
-          arrowY - 5 * Math.sin(rad  Math.PI / 6)
+          arrowX - 5 * Math.cos(rad + Math.PI / 6),
+          arrowY - 5 * Math.sin(rad + Math.PI / 6)
         );
         ctx.closePath();
         ctx.fillStyle = "blue";
@@ -213,7 +213,7 @@
       const last = trajectoryPoints[trajectoryPoints.length - 1];
       const dx = x - last.x;
       const dy = y - last.y;
-      if (Math.sqrt(dx * dx  dy * dy) > 2) {
+      if (Math.sqrt(dx * dx + dy * dy) > 2) {
         trajectoryPoints.push({ x, y });
       }
     }
@@ -239,42 +239,42 @@
     //   drawEverything();
     // });
     canvas.addEventListener("click", (e) => {
-  const rect = canvas.getBoundingClientRect();
-  userX = e.clientX - rect.left;
-  userY = e.clientY - rect.top;
-
-  // Reset trajectory and step count
-  stepCount = 0;
-  trajectoryPoints = [];
-  addTrajectoryPoint(userX, userY);
-
-  // Determine distances to each edge of the canvas
-  const dTop = userY;
-  const dBottom = canvas.height - userY;
-  const dLeft = userX;
-  const dRight = canvas.width - userX;
-  const minDist = Math.min(dTop, dBottom, dLeft, dRight);
-
-  // Map closest edge to a desired initial heading (in degrees)
-  // Canvas coordinate system: 0° is right, 90° is down, 180° is left, 270° is up.
-  let desiredInitialHeading;
-  if (minDist === dTop) {
-    desiredInitialHeading = 90;   // Near top edge → start moving down into the image
-  } else if (minDist === dBottom) {
-    desiredInitialHeading = 270;  // Near bottom edge → start moving up into the image
-  } else if (minDist === dLeft) {
-    desiredInitialHeading = 0;    // Near left edge → start moving right
-  } else if (minDist === dRight) {
-    desiredInitialHeading = 180;  // Near right edge → start moving left
-  }
-
-  // Calibrate heading so that effective heading equals the desired direction.
-  // Effective heading = sensor heading - baseHeading, so we set:
-  baseHeading = heading - desiredInitialHeading;
-  useCalibratedHeading = true;
-
-  drawEverything();
-});
+      const rect = canvas.getBoundingClientRect();
+      userX = e.clientX - rect.left;
+      userY = e.clientY - rect.top;
+    
+      // Reset trajectory and step count
+      stepCount = 0;
+      trajectoryPoints = [];
+      addTrajectoryPoint(userX, userY);
+    
+      // Determine distances to each edge of the canvas
+      const dTop = userY;
+      const dBottom = canvas.height - userY;
+      const dLeft = userX;
+      const dRight = canvas.width - userX;
+      const minDist = Math.min(dTop, dBottom, dLeft, dRight);
+    
+      // Map closest edge to a desired initial heading (in degrees)
+      // Canvas coordinate system: 0° is right, 90° is down, 180° is left, 270° is up.
+      let desiredInitialHeading;
+      if (minDist === dTop) {
+        desiredInitialHeading = 90;   // Near top edge → start moving down into the image
+      } else if (minDist === dBottom) {
+        desiredInitialHeading = 270;  // Near bottom edge → start moving up into the image
+      } else if (minDist === dLeft) {
+        desiredInitialHeading = 0;    // Near left edge → start moving right
+      } else if (minDist === dRight) {
+        desiredInitialHeading = 180;  // Near right edge → start moving left
+      }
+    
+      // Calibrate heading so that effective heading equals the desired direction.
+      // Effective heading = sensor heading - baseHeading, so we set:
+      baseHeading = heading - desiredInitialHeading;
+      useCalibratedHeading = true;
+    
+      drawEverything();
+    });
 
     // C) DEVICE ORIENTATION => get heading
     window.addEventListener("deviceorientation", (event) => {
@@ -283,7 +283,7 @@
       document.getElementById("headingDeg").innerText = heading.toFixed(2);
     });
 
-    // D) DEVICE MOTION => step detection  stationary detection
+    // D) DEVICE MOTION => step detection + stationary detection
     window.addEventListener("devicemotion", (event) => {
       // If user hasn't set starting position, ignore
       if (userX === null || userY === null) return;
@@ -293,16 +293,16 @@
       const rawY = event.accelerationIncludingGravity.y || 0;
       const rawZ = event.accelerationIncludingGravity.z || 0;
 
-      gravityX = alpha * gravityX  (1 - alpha) * rawX;
-      gravityY = alpha * gravityY  (1 - alpha) * rawY;
-      gravityZ = alpha * gravityZ  (1 - alpha) * rawZ;
+      gravityX = alpha * gravityX + (1 - alpha) * rawX;
+      gravityY = alpha * gravityY + (1 - alpha) * rawY;
+      gravityZ = alpha * gravityZ + (1 - alpha) * rawZ;
 
       const linX = rawX - gravityX;
       const linY = rawY - gravityY;
       const linZ = rawZ - gravityZ;
 
-      // 2) Magnitude  motion buffer
-      const magnitude = Math.sqrt(linX*linX  linY*linY  linZ*linZ);
+      // 2) Magnitude + motion buffer
+      const magnitude = Math.sqrt(linX*linX + linY*linY + linZ*linZ);
       motionBuffer.push(magnitude);
       if (motionBuffer.length > motionBufferSize) {
         motionBuffer.shift();
@@ -317,19 +317,19 @@
           peakDetected = true;
         } else if (peakDetected && magnitude < stepThresholdLow) {
           if (now - lastPeakTime > minStepInterval) {
-            stepCount;
+            stepCount++;
             document.getElementById("stepsCount").innerText = stepCount;
 
             // Move user
             let usedHeading = useCalibratedHeading 
                               ? (heading - baseHeading) 
                               : heading;
-            usedHeading = (360 - usedHeading  360) % 360; // flip if needed
+            usedHeading = (360 - usedHeading + 360) % 360; // flip if needed
             const rad = usedHeading * Math.PI / 180;
 
             const stepPx = stepLengthMeters * pixelsPerMeter;
-            userX = stepPx * Math.cos(rad);
-            userY = stepPx * Math.sin(rad);
+            userX += stepPx * Math.cos(rad);
+            userY += stepPx * Math.sin(rad);
 
             addTrajectoryPoint(userX, userY);
             document.getElementById("posX").innerText = userX.toFixed(1);
