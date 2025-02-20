@@ -3,23 +3,19 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Motion, Step Counter & Trajectory Visualization</title>
+  <title>Motion Tracking with Arrow Direction</title>
   <style>
     body { font-family: Arial, sans-serif; text-align: center; padding: 20px; }
     h1 { color: #333; }
     p { font-size: 18px; }
-    #status { font-weight: bold; color: blue; }
     #trajectoryCanvas { border: 1px solid #000; margin-top: 20px; }
     button { margin-top: 10px; padding: 8px 16px; font-size: 16px; }
   </style>
 </head>
 <body>
-  <h1>Motion, Step Counter, and Trajectory Tracking</h1>
-  <p><strong>Acceleration (Filtered):</strong> <span id="acceleration">Waiting...</span></p>
-  <p><strong>Direction (Filtered):</strong> <span id="direction">Waiting...</span></p>
-  <p><strong>Estimated Position:</strong> X=<span id="posX">0</span>, Y=<span id="posY">0</span></p>
+  <h1>Motion Tracking with Direction Arrow</h1>
+  <p><strong>Direction:</strong> <span id="direction">Waiting...</span></p>
   <p><strong>Steps Counted:</strong> <span id="steps">0</span></p>
-  <p id="status">Initializing sensors...</p>
   <button id="reset">Recalibrate Position</button>
   <canvas id="trajectoryCanvas" width="500" height="500"></canvas>
 
@@ -27,8 +23,7 @@
   <script>
     document.addEventListener("DOMContentLoaded", () => {
       if (!window.DeviceMotionEvent || !window.DeviceOrientationEvent) {
-        document.getElementById("status").innerText =
-          "Your device does not support motion tracking!";
+        alert("Your device does not support motion tracking!");
         return;
       }
 
@@ -39,6 +34,10 @@
       let stepCount = 0;
       const stepLength = 0.7;
       let lastStepTime = 0;
+      let prevAccZ = 0;
+
+      let trajectoryPoints = [{ x: 0, y: 0 }];
+      const toleranceThreshold = 0.05;
 
       let gravityX = 0, gravityY = 0, gravityZ = 0;
       const alpha = 0.9;
@@ -49,110 +48,119 @@
       const centerX = canvas.width / 2;
       const centerY = canvas.height / 2;
 
-      const trajectoryPoints = [{ x: 0, y: 0 }];
-
       function drawTrajectory() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        // Draw grid
-        ctx.strokeStyle = "#ccc";
-        ctx.beginPath();
-        ctx.moveTo(centerX, 0);
-        ctx.lineTo(centerX, canvas.height);
-        ctx.moveTo(0, centerY);
-        ctx.lineTo(canvas.width, centerY);
-        ctx.stroke();
-
-        // Draw trajectory path
+        // Draw path
         ctx.beginPath();
         ctx.strokeStyle = "red";
         trajectoryPoints.forEach((pt, index) => {
-          const px = centerX + pt.x * scale;
-          const py = centerY - pt.y * scale;
-          if (index === 0) ctx.moveTo(px, py);
-          else ctx.lineTo(px, py);
+          let px = centerX + pt.x * scale;
+          let py = centerY - pt.y * scale;
+          if (index === 0) {
+            ctx.moveTo(px, py);
+          } else {
+            ctx.lineTo(px, py);
+          }
         });
         ctx.stroke();
 
-        // Draw the current position with arrow
-        const current = trajectoryPoints[trajectoryPoints.length - 1];
-        drawArrow(centerX + current.x * scale, centerY - current.y * scale, heading);
+        // Draw arrow at current position
+        drawArrow(
+          centerX + userX * scale,
+          centerY - userY * scale,
+          heading
+        );
       }
 
       function drawArrow(x, y, angle) {
+        const arrowSize = 10;
+
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate((angle * Math.PI) / 180);
+
+        ctx.beginPath();
+        ctx.moveTo(-arrowSize, arrowSize);
+        ctx.lineTo(0, -arrowSize);
+        ctx.lineTo(arrowSize, arrowSize);
+        ctx.closePath();
+
         ctx.fillStyle = "blue";
-
-        // Draw the circle
-        ctx.beginPath();
-        ctx.arc(x, y, 5, 0, 2 * Math.PI);
         ctx.fill();
+        ctx.restore();
+      }
 
-        // Draw the arrow (triangle)
-        const arrowLength = 15;
-        const radians = (angle * Math.PI) / 180;
+      function isCloseEnough(x1, y1, x2, y2) {
+        return Math.hypot(x2 - x1, y2 - y1) < toleranceThreshold;
+      }
 
-        const arrowX = x + arrowLength * Math.cos(radians);
-        const arrowY = y + arrowLength * Math.sin(radians);
-
-        ctx.beginPath();
-        ctx.moveTo(x, y);
-        ctx.lineTo(arrowX, arrowY);
-
-        ctx.lineTo(
-          x + arrowLength * Math.cos(radians + Math.PI * 0.75),
-          y + arrowLength * Math.sin(radians + Math.PI * 0.75)
-        );
-
-        ctx.moveTo(arrowX, arrowY);
-
-        ctx.lineTo(
-          x + arrowLength * Math.cos(radians - Math.PI * 0.75),
-          y + arrowLength * Math.sin(radians - Math.PI * 0.75)
-        );
-
-        ctx.fill();
+      function isActualMovement(linearAccZ) {
+        return Math.abs(linearAccZ - prevAccZ) < 0.5;
       }
 
       window.addEventListener("devicemotion", (event) => {
-        const acc = event.accelerationIncludingGravity;
+        const rawAccX = event.accelerationIncludingGravity.x || 0;
+        const rawAccY = event.accelerationIncludingGravity.y || 0;
+        const rawAccZ = event.accelerationIncludingGravity.z || 0;
 
-        gravityX = alpha * gravityX + (1 - alpha) * acc.x;
-        gravityY = alpha * gravityY + (1 - alpha) * acc.y;
-        gravityZ = alpha * gravityZ + (1 - alpha) * acc.z;
+        gravityX = alpha * gravityX + (1 - alpha) * rawAccX;
+        gravityY = alpha * gravityY + (1 - alpha) * rawAccY;
+        gravityZ = alpha * gravityZ + (1 - alpha) * rawAccZ;
 
-        const linearAccX = acc.x - gravityX;
-        const linearAccY = acc.y - gravityY;
+        const linearAccX = rawAccX - gravityX;
+        const linearAccY = rawAccY - gravityY;
+        const linearAccZ = rawAccZ - gravityZ;
 
         const movement = Math.sqrt(linearAccX ** 2 + linearAccY ** 2);
 
-        if (movement > 1.2 && Date.now() - lastStepTime > 500) {
-          lastStepTime = Date.now();
+        const currentTime = Date.now();
+
+        if (
+          movement > 1.2 &&
+          currentTime - lastStepTime > 500 &&
+          isActualMovement(linearAccZ)
+        ) {
+          stepCount++;
+          lastStepTime = currentTime;
 
           const adjustedHeading = heading - (screen.orientation.angle || 0);
-          userX += stepLength * Math.cos((adjustedHeading * Math.PI) / 180);
-          userY += stepLength * Math.sin((adjustedHeading * Math.PI) / 180);
+          const newX = userX + stepLength * Math.cos(adjustedHeading * (Math.PI / 180));
+          const newY = userY + stepLength * Math.sin(adjustedHeading * (Math.PI / 180));
 
-          trajectoryPoints.push({ x: userX, y: userY });
+          if (!isCloseEnough(userX, userY, newX, newY)) {
+            userX = newX;
+            userY = newY;
+            trajectoryPoints.push({ x: userX, y: userY });
+          } else {
+            userX = trajectoryPoints[trajectoryPoints.length - 1].x;
+            userY = trajectoryPoints[trajectoryPoints.length - 1].y;
+          }
+
           drawTrajectory();
 
-          document.getElementById("steps").innerText = stepCount++;
-          document.getElementById("posX").innerText = userX.toFixed(2);
-          document.getElementById("posY").innerText = userY.toFixed(2);
+          document.getElementById("steps").innerText = stepCount;
         }
+
+        prevAccZ = linearAccZ;
       });
 
       window.addEventListener("deviceorientation", (event) => {
         heading = kfGyro.filter(event.alpha || 0);
         document.getElementById("direction").innerText = `${heading.toFixed(2)}°`;
-      });
 
-      document.getElementById("reset").addEventListener("click", () => {
-        userX = userY = stepCount = 0;
-        trajectoryPoints.length = 1;
         drawTrajectory();
       });
 
-      document.getElementById("status").innerText = "Sensors are active!";
+      document.getElementById("reset").addEventListener("click", () => {
+        userX = 0;
+        userY = 0;
+        stepCount = 0;
+        trajectoryPoints = [{ x: 0, y: 0 }];
+        drawTrajectory();
+        document.getElementById("steps").innerText = "0";
+      });
+
       drawTrajectory();
     });
   </script>
