@@ -247,8 +247,8 @@
             // When heading = 90 (east): move right => userX increases.
             // Thus, update: dx = stepPx * sin(heading) and dy = - stepPx * cos(heading).
             const rad = heading * Math.PI / 180;
-            userX += stepPx * Math.sin(rad);
-            userY += - stepPx * Math.cos(rad);
+            userX -= stepPx * Math.sin(rad);
+            userY -= - stepPx * Math.cos(rad);
             trajectoryPoints.push({ x: userX, y: userY });
             document.getElementById("offsetX").innerText = userX.toFixed(1);
             document.getElementById("offsetY").innerText = userY.toFixed(1);
