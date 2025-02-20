@@ -65,7 +65,7 @@
         });
         ctx.stroke();
 
-        // Draw arrow at current position
+        // Draw improved arrow
         drawArrow(
           centerX + userX * scale,
           centerY - userY * scale,
@@ -74,16 +74,20 @@
       }
 
       function drawArrow(x, y, angle) {
-        const arrowSize = 10;
+        const arrowWidth = 20;
+        const arrowHeight = 30;
 
         ctx.save();
         ctx.translate(x, y);
         ctx.rotate((angle * Math.PI) / 180);
 
         ctx.beginPath();
-        ctx.moveTo(-arrowSize, arrowSize);
-        ctx.lineTo(0, -arrowSize);
-        ctx.lineTo(arrowSize, arrowSize);
+        ctx.moveTo(0, -arrowHeight);  // Tip of arrow
+        ctx.lineTo(-arrowWidth / 2, arrowHeight / 2);  // Left bottom
+        ctx.lineTo(-5, arrowHeight / 2);  // Left inner
+        ctx.lineTo(0, arrowHeight / 3);  // Middle cut
+        ctx.lineTo(5, arrowHeight / 2);  // Right inner
+        ctx.lineTo(arrowWidth / 2, arrowHeight / 2);  // Right bottom
         ctx.closePath();
 
         ctx.fillStyle = "blue";
