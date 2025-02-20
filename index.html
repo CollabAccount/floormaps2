@@ -22,8 +22,8 @@
       background: #fff;
       cursor: crosshair;
       border: 1px solid #aaa;
-      width:100vw;
       height:auto;
+      width:100vw;
     }
     #stats {
       margin: 0.5em 0;
@@ -82,7 +82,7 @@
     const floorPlan = new Image();
     floorPlan.src = floorPlanSrc;
     function drawFloorPlan() {
-      ctx.drawImage(floorPlan, 0, 0, canvas.style.width, canvas.style.height);
+      ctx.drawImage(floorPlan, 0, 0, window.innerWidth, window.innerWidth * (floorPlan.height / floorPlan.width));
     }
     
     /********************************************************
@@ -136,7 +136,7 @@
       if (userX !== null && userY !== null) {
         ctx.save();
         // Rotate map by -heading so that the fixed arrow (drawn at the center) always points up.
-        let rotationAngle = heading * Math.PI / 180;
+        let rotationAngle =  heading * Math.PI / 180;
         ctx.translate(canvas.width/2, canvas.height/2);
         ctx.rotate(rotationAngle);
         // Translate so that the user's world coordinate appears at the center.
