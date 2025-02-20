@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Floor Plan Live Tracking (Reduced Noise + Direction Fix)</title>
+  <title>Floor Plan Live Tracking (Edge-Mapped Heading)</title>
   <style>
     body {
       margin: 0;
@@ -122,10 +122,10 @@
     let isStationary = true;
     const stationaryStdDevThreshold = 0.3; // tweak as needed
 
-    // Simple function to compute std dev
+    // Simple function to compute standard deviation
     function computeStdDev(arr) {
       if (!arr.length) return 0;
-      const mean = arr.reduce((a,b) => a + b, 0) / arr.length;
+      const mean = arr.reduce((a, b) => a + b, 0) / arr.length;
       const variance = arr.reduce((sum, val) => sum + (val - mean) ** 2, 0) / arr.length;
       return Math.sqrt(variance);
     }
@@ -137,11 +137,11 @@
      * 3) DRAWING FUNCTIONS
      ********************************************************/
     function drawEverything() {
-      // 1) Floor plan
+      // 1) Draw floor plan
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       drawFloorPlan();
 
-      // 2) Trajectory line
+      // 2) Draw trajectory line
       if (trajectoryPoints.length > 1) {
         ctx.beginPath();
         ctx.strokeStyle = "red";
@@ -157,24 +157,29 @@
         ctx.stroke();
       }
 
-      // 3) Current position + heading arrow
+      // 3) Draw current position and heading arrow
       if (userX !== null && userY !== null) {
-        // Red dot for position
+        // Draw red dot for position
         ctx.beginPath();
         ctx.arc(userX, userY, 5, 0, 2 * Math.PI);
         ctx.fillStyle = "red";
         ctx.fill();
 
-        // Arrow for heading
-        // Flip direction if needed:
-        let usedHeading = useCalibratedHeading 
-                          ? (heading - baseHeading) 
-                          : heading;
-        // Invert if your arrow is reversed:
-        usedHeading = (360 - usedHeading + 360) % 360; 
-
-        const rad = usedHeading * Math.PI / 180;
-        const arrowLen = 15; // in pixels
+        // Calculate effective heading from sensor data:
+        let effectiveHeading = useCalibratedHeading ? (heading - baseHeading) : heading;
+        effectiveHeading = (effectiveHeading + 360) % 360;
+        // Map observed ranges to fixed directions:
+        if (effectiveHeading >= 90 && effectiveHeading <= 130) {
+          effectiveHeading = 90;      // Upper edge → y positive (downward)
+        } else if (effectiveHeading >= 0 && effectiveHeading <= 50) {
+          effectiveHeading = 0;       // Right edge → x positive
+        } else if (effectiveHeading >= 260 && effectiveHeading <= 310) {
+          effectiveHeading = 270;     // Bottom edge → y negative (upward)
+        } else if (effectiveHeading >= 170 && effectiveHeading <= 230) {
+          effectiveHeading = 180;     // Left edge → x negative
+        }
+        const rad = effectiveHeading * Math.PI / 180;
+        const arrowLen = 15; // arrow length in pixels
 
         const arrowX = userX + arrowLen * Math.cos(rad);
         const arrowY = userY + arrowLen * Math.sin(rad);
@@ -187,7 +192,7 @@
         ctx.lineWidth = 2;
         ctx.stroke();
 
-        // Small arrowhead
+        // Draw arrowhead
         ctx.beginPath();
         ctx.moveTo(arrowX, arrowY);
         ctx.lineTo(
@@ -204,7 +209,7 @@
       }
     }
 
-    // Add a new point if it's sufficiently far from the last
+    // Add a new point to the trajectory if it's sufficiently far from the last one
     function addTrajectoryPoint(x, y) {
       if (!trajectoryPoints.length) {
         trajectoryPoints.push({ x, y });
@@ -221,12 +226,12 @@
     /********************************************************
      * 4) EVENT LISTENERS
      ********************************************************/
-    // A) LOAD IMAGE => draw once
+    // A) Load image and draw once
     floorPlan.onload = function() {
       drawEverything();
     };
 
-    // B) CLICK CANVAS => set starting position
+    // B) Click canvas to set starting position
     canvas.addEventListener("click", (e) => {
       const rect = canvas.getBoundingClientRect();
       userX = e.clientX - rect.left;
@@ -239,19 +244,19 @@
       drawEverything();
     });
 
-    // C) DEVICE ORIENTATION => get heading
+    // C) Device orientation: update heading
     window.addEventListener("deviceorientation", (event) => {
       const rawHeading = event.alpha || 0;
       heading = headingKF.filter(rawHeading);
       document.getElementById("headingDeg").innerText = heading.toFixed(2);
     });
 
-    // D) DEVICE MOTION => step detection + stationary detection
+    // D) Device motion: step detection and stationary detection
     window.addEventListener("devicemotion", (event) => {
-      // If user hasn't set starting position, ignore
+      // If starting position isn't set, do nothing
       if (userX === null || userY === null) return;
 
-      // 1) Gravity removal
+      // 1) Remove gravity (high-pass filtering)
       const rawX = event.accelerationIncludingGravity.x || 0;
       const rawY = event.accelerationIncludingGravity.y || 0;
       const rawZ = event.accelerationIncludingGravity.z || 0;
@@ -264,8 +269,8 @@
       const linY = rawY - gravityY;
       const linZ = rawZ - gravityZ;
 
-      // 2) Magnitude + motion buffer
-      const magnitude = Math.sqrt(linX*linX + linY*linY + linZ*linZ);
+      // 2) Compute magnitude and update rolling buffer
+      const magnitude = Math.sqrt(linX * linX + linY * linY + linZ * linZ);
       motionBuffer.push(magnitude);
       if (motionBuffer.length > motionBufferSize) {
         motionBuffer.shift();
@@ -273,7 +278,7 @@
       const stdDev = computeStdDev(motionBuffer);
       isStationary = (stdDev < stationaryStdDevThreshold);
 
-      // 3) Step detection if not stationary
+      // 3) Step detection (only if not stationary)
       const now = performance.now();
       if (!isStationary) {
         if (!peakDetected && magnitude > stepThresholdHigh) {
@@ -283,12 +288,19 @@
             stepCount++;
             document.getElementById("stepsCount").innerText = stepCount;
 
-            // Move user
-            let usedHeading = useCalibratedHeading 
-                              ? (heading - baseHeading) 
-                              : heading;
-            usedHeading = (360 - usedHeading + 360) % 360; // flip if needed
-            const rad = usedHeading * Math.PI / 180;
+            // Calculate effective heading for movement using the same mapping logic
+            let effectiveHeading = useCalibratedHeading ? (heading - baseHeading) : heading;
+            effectiveHeading = (effectiveHeading + 360) % 360;
+            if (effectiveHeading >= 90 && effectiveHeading <= 130) {
+              effectiveHeading = 90;
+            } else if (effectiveHeading >= 0 && effectiveHeading <= 50) {
+              effectiveHeading = 0;
+            } else if (effectiveHeading >= 260 && effectiveHeading <= 310) {
+              effectiveHeading = 270;
+            } else if (effectiveHeading >= 170 && effectiveHeading <= 230) {
+              effectiveHeading = 180;
+            }
+            const rad = effectiveHeading * Math.PI / 180;
 
             const stepPx = stepLengthMeters * pixelsPerMeter;
             userX += stepPx * Math.cos(rad);
@@ -304,7 +316,7 @@
         }
       }
 
-      // 4) Update UI
+      // 4) Update UI for acceleration values
       document.getElementById("accX").innerText = linX.toFixed(2);
       document.getElementById("accY").innerText = linY.toFixed(2);
       document.getElementById("accZ").innerText = linZ.toFixed(2);
@@ -313,11 +325,11 @@
         ? "Stationary (No real steps)."
         : "Moving...";
 
-      // 5) Redraw
+      // 5) Redraw the canvas
       drawEverything();
     });
 
-    // E) RESET BUTTON
+    // E) Reset button to clear position and steps
     document.getElementById("resetBtn").addEventListener("click", () => {
       userX = null;
       userY = null;
@@ -333,7 +345,7 @@
       drawEverything();
     });
 
-    // F) CALIBRATE HEADING
+    // F) Calibrate heading button to set the current sensor heading as 0°
     document.getElementById("calibrateBtn").addEventListener("click", () => {
       baseHeading = heading;
       useCalibratedHeading = true;
