@@ -23,7 +23,6 @@
   <button id="reset">Recalibrate Position</button>
   <canvas id="trajectoryCanvas" width="500" height="500"></canvas>
 
-  <!-- Kalman filter library for smoothing orientation -->
   <script src="https://cdn.jsdelivr.net/npm/kalmanjs"></script>
   <script>
     document.addEventListener("DOMContentLoaded", () => {
@@ -32,140 +31,130 @@
           "Your device does not support motion tracking!";
         return;
       }
-  
+
       const kfGyro = new KalmanFilter();
-  
+
       let userX = 0, userY = 0;
       let heading = 0;
       let stepCount = 0;
       const stepLength = 0.7;
       let lastStepTime = 0;
-      let prevAccZ = 0; // To compare acceleration changes
-  
-      let trajectoryPoints = [{ x: 0, y: 0 }];
-      const toleranceThreshold = 0.05;
-  
+
       let gravityX = 0, gravityY = 0, gravityZ = 0;
       const alpha = 0.9;
-  
+
       const canvas = document.getElementById("trajectoryCanvas");
       const ctx = canvas.getContext("2d");
       const scale = 50;
       const centerX = canvas.width / 2;
       const centerY = canvas.height / 2;
-  
+
+      const trajectoryPoints = [{ x: 0, y: 0 }];
+
       function drawTrajectory() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.beginPath();
+
+        // Draw grid
         ctx.strokeStyle = "#ccc";
+        ctx.beginPath();
         ctx.moveTo(centerX, 0);
         ctx.lineTo(centerX, canvas.height);
         ctx.moveTo(0, centerY);
         ctx.lineTo(canvas.width, centerY);
         ctx.stroke();
-  
+
+        // Draw trajectory path
         ctx.beginPath();
         ctx.strokeStyle = "red";
         trajectoryPoints.forEach((pt, index) => {
-          let px = centerX + pt.x * scale;
-          let py = centerY - pt.y * scale;
-          if (index === 0) {
-            ctx.moveTo(px, py);
-          } else {
-            ctx.lineTo(px, py);
-          }
+          const px = centerX + pt.x * scale;
+          const py = centerY - pt.y * scale;
+          if (index === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
         });
         ctx.stroke();
-  
-        trajectoryPoints.forEach((pt) => {
-          let px = centerX + pt.x * scale;
-          let py = centerY - pt.y * scale;
-          ctx.beginPath();
-          ctx.arc(px, py, 3, 0, 2 * Math.PI);
-          ctx.fillStyle = "blue";
-          ctx.fill();
-        });
+
+        // Draw the current position with arrow
+        const current = trajectoryPoints[trajectoryPoints.length - 1];
+        drawArrow(centerX + current.x * scale, centerY - current.y * scale, heading);
       }
-  
-      function isCloseEnough(x1, y1, x2, y2) {
-        return Math.hypot(x2 - x1, y2 - y1) < toleranceThreshold;
+
+      function drawArrow(x, y, angle) {
+        ctx.fillStyle = "blue";
+
+        // Draw the circle
+        ctx.beginPath();
+        ctx.arc(x, y, 5, 0, 2 * Math.PI);
+        ctx.fill();
+
+        // Draw the arrow (triangle)
+        const arrowLength = 15;
+        const radians = (angle * Math.PI) / 180;
+
+        const arrowX = x + arrowLength * Math.cos(radians);
+        const arrowY = y + arrowLength * Math.sin(radians);
+
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(arrowX, arrowY);
+
+        ctx.lineTo(
+          x + arrowLength * Math.cos(radians + Math.PI * 0.75),
+          y + arrowLength * Math.sin(radians + Math.PI * 0.75)
+        );
+
+        ctx.moveTo(arrowX, arrowY);
+
+        ctx.lineTo(
+          x + arrowLength * Math.cos(radians - Math.PI * 0.75),
+          y + arrowLength * Math.sin(radians - Math.PI * 0.75)
+        );
+
+        ctx.fill();
       }
-  
-      function isActualMovement(linearAccZ) {
-        return Math.abs(linearAccZ - prevAccZ) < 0.5;
-      }
-  
+
       window.addEventListener("devicemotion", (event) => {
-        const rawAccX = event.accelerationIncludingGravity.x || 0;
-        const rawAccY = event.accelerationIncludingGravity.y || 0;
-        const rawAccZ = event.accelerationIncludingGravity.z || 0;
-  
-        gravityX = alpha * gravityX + (1 - alpha) * rawAccX;
-        gravityY = alpha * gravityY + (1 - alpha) * rawAccY;
-        gravityZ = alpha * gravityZ + (1 - alpha) * rawAccZ;
-  
-        const linearAccX = rawAccX - gravityX;
-        const linearAccY = rawAccY - gravityY;
-        const linearAccZ = rawAccZ - gravityZ;
-  
+        const acc = event.accelerationIncludingGravity;
+
+        gravityX = alpha * gravityX + (1 - alpha) * acc.x;
+        gravityY = alpha * gravityY + (1 - alpha) * acc.y;
+        gravityZ = alpha * gravityZ + (1 - alpha) * acc.z;
+
+        const linearAccX = acc.x - gravityX;
+        const linearAccY = acc.y - gravityY;
+
         const movement = Math.sqrt(linearAccX ** 2 + linearAccY ** 2);
-  
-        const currentTime = Date.now();
-  
-        if (
-          movement > 1.2 &&
-          currentTime - lastStepTime > 500 &&
-          isActualMovement(linearAccZ)
-        ) {
-          stepCount++;
-          lastStepTime = currentTime;
-  
+
+        if (movement > 1.2 && Date.now() - lastStepTime > 500) {
+          lastStepTime = Date.now();
+
           const adjustedHeading = heading - (screen.orientation.angle || 0);
-          const newX = userX + stepLength * Math.cos(adjustedHeading * (Math.PI / 180));
-          const newY = userY + stepLength * Math.sin(adjustedHeading * (Math.PI / 180));
-  
-          if (!isCloseEnough(userX, userY, newX, newY)) {
-            userX = newX;
-            userY = newY;
-            trajectoryPoints.push({ x: userX, y: userY });
-          } else {
-            userX = trajectoryPoints[trajectoryPoints.length - 1].x;
-            userY = trajectoryPoints[trajectoryPoints.length - 1].y;
-          }
-  
+          userX += stepLength * Math.cos((adjustedHeading * Math.PI) / 180);
+          userY += stepLength * Math.sin((adjustedHeading * Math.PI) / 180);
+
+          trajectoryPoints.push({ x: userX, y: userY });
           drawTrajectory();
-  
-          document.getElementById("steps").innerText = stepCount;
+
+          document.getElementById("steps").innerText = stepCount++;
           document.getElementById("posX").innerText = userX.toFixed(2);
           document.getElementById("posY").innerText = userY.toFixed(2);
         }
-  
-        prevAccZ = linearAccZ;
-  
-        document.getElementById("acceleration").innerText =
-          `X=${linearAccX.toFixed(2)}, Y=${linearAccY.toFixed(2)}, Z=${linearAccZ.toFixed(2)}`;
       });
-  
+
       window.addEventListener("deviceorientation", (event) => {
         heading = kfGyro.filter(event.alpha || 0);
         document.getElementById("direction").innerText = `${heading.toFixed(2)}°`;
       });
-  
+
       document.getElementById("reset").addEventListener("click", () => {
-        userX = 0;
-        userY = 0;
-        stepCount = 0;
-        trajectoryPoints = [{ x: 0, y: 0 }];
+        userX = userY = stepCount = 0;
+        trajectoryPoints.length = 1;
         drawTrajectory();
-        document.getElementById("steps").innerText = "0";
-        document.getElementById("posX").innerText = "0";
-        document.getElementById("posY").innerText = "0";
       });
-  
+
       document.getElementById("status").innerText = "Sensors are active!";
       drawTrajectory();
     });
   </script>
-  
 </body>
 </html>
