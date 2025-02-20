@@ -127,14 +127,14 @@
     /********************************************************
      * 3) DRAWING FUNCTIONS
      ********************************************************/
-    function drawEverything() {
+    function drawEverything(clickHeading) {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       
       // If a starting position is set, we rotate the map so that the fixed arrow remains upward.
       if (userX !== null && userY !== null) {
         ctx.save();
         // Rotate map by -heading so that the fixed arrow (drawn at the center) always points up.
-        let rotationAngle =  (heading) * Math.PI / 180;
+        let rotationAngle =  clickHeading ? (heading-110) * Math.PI / 180 : heading * Math.PI / 180;
         ctx.translate(canvas.width/2, canvas.height/2);
         ctx.rotate(rotationAngle);
         // Translate so that the user's world coordinate appears at the center.
@@ -198,8 +198,7 @@
       trajectoryPoints = [];
       trajectoryPoints.push({ x: userX, y: userY });
       stepCount = 0;
-      heading -= 110;
-      drawEverything();
+      drawEverything(true);
     });
     
     // C) Device orientation: update sensor heading.
