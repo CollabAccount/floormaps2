@@ -122,6 +122,7 @@
      ********************************************************/
     // Sensor heading (in degrees)
     let heading = 0;
+    let initialHeading = null; // Store the first heading value
     const headingKF = new KalmanFilter({ R: 0.01, Q: 3 });
     
     // User world coordinates (starting position)
@@ -237,10 +238,19 @@
     
     // C) Device orientation: update sensor heading.
     window.addEventListener("deviceorientation", (event) => {
-      const rawHeading = event.alpha || 0;
-      heading = headingKF.filter(rawHeading);
-      document.getElementById("headingDeg").innerText = heading.toFixed(2);
-      drawEverything();
+        let rawHeading = event.alpha || 0; // Get device heading
+  
+  if (initialHeading === null) {
+    initialHeading = rawHeading; // Store the first reading as reference
+  }
+
+  // Normalize heading so that all devices start from 0°
+  let normalizedHeading = (rawHeading - initialHeading + 360) % 360;
+
+  heading = headingKF.filter(normalizedHeading); // Apply Kalman Filter
+  document.getElementById("headingDeg").innerText = heading.toFixed(2);
+  
+  drawEverything(); // Update canvas
     });
     
     // D) Device motion: step detection and update movement.
