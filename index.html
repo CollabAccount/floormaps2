@@ -22,8 +22,6 @@
       background: #fff;
       cursor: crosshair;
       border: 1px solid #aaa;
-      width:100vw;
-      height:auto;
     }
     #stats {
       margin: 0.5em 0;
@@ -82,7 +80,7 @@
     const floorPlan = new Image();
     floorPlan.src = floorPlanSrc;
     function drawFloorPlan() {
-      ctx.drawImage(floorPlan, 0, 0, canvas.width, canvas.height);
+      ctx.drawImage(floorPlan, 0, 0, canvas.style.width, canvas.style.height);
     }
     
     /********************************************************
