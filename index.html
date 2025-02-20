@@ -124,20 +124,29 @@
       return Math.sqrt(variance);
     }
     
+    // --- NEW: Variable to hold the initial rotation override ---
+    let overrideRotation = null;
+    
     /********************************************************
      * 3) DRAWING FUNCTIONS
      ********************************************************/
     function drawEverything() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       
-      // If a starting position is set, we rotate the map so that the fixed arrow remains upward.
+      // If a starting position is set, rotate the map.
       if (userX !== null && userY !== null) {
         ctx.save();
-        // Rotate map by -heading so that the fixed arrow (drawn at the center) always points up.
-        let rotationAngle =  (heading) * Math.PI / 180;
-        ctx.translate(canvas.width/2, canvas.height/2);
+        let rotationAngle;
+        // Use the override rotation (set on first click) if available
+        if (overrideRotation !== null) {
+          rotationAngle = overrideRotation;
+          // Clear override so subsequent renders use sensor data.
+          overrideRotation = null;
+        } else {
+          rotationAngle = (heading - 110) * Math.PI / 180;
+        }
+        ctx.translate(canvas.width / 2, canvas.height / 2);
         ctx.rotate(rotationAngle);
-        // Translate so that the user's world coordinate appears at the center.
         ctx.translate(-userX, -userY);
         drawFloorPlan();
         // Draw trajectory (in world coordinates)
@@ -161,8 +170,8 @@
     }
     
     function drawArrowAtCenter() {
-      const centerX = canvas.width/2;
-      const centerY = canvas.height/2;
+      const centerX = canvas.width / 2;
+      const centerY = canvas.height / 2;
       const arrowLen = 15;
       ctx.save();
       ctx.beginPath();
@@ -193,11 +202,16 @@
     // B) Click canvas to set starting position.
     canvas.addEventListener("click", (e) => {
       const rect = canvas.getBoundingClientRect();
+      // --- NEW: On first click, set overrideRotation to 110° anticlockwise ---
+      if (userX === null && userY === null) {
+        overrideRotation = - 110 * Math.PI / 180;
+      }
       userX = e.clientX - rect.left;
       userY = e.clientY - rect.top;
       trajectoryPoints = [];
       trajectoryPoints.push({ x: userX, y: userY });
       stepCount = 0;
+      document.getElementById("stepsCount").innerText = stepCount;
       drawEverything();
     });
     
@@ -225,7 +239,7 @@
       const linY = rawY - gravityY;
       const linZ = rawZ - gravityZ;
       
-      const magnitude = Math.sqrt(linX*linX + linY*linY + linZ*linZ);
+      const magnitude = Math.sqrt(linX * linX + linY * linY + linZ * linZ);
       motionBuffer.push(magnitude);
       if (motionBuffer.length > motionBufferSize) motionBuffer.shift();
       const stdDev = computeStdDev(motionBuffer);
@@ -240,15 +254,10 @@
             stepCount++;
             document.getElementById("stepsCount").innerText = stepCount;
             const stepPx = stepLengthMeters * pixelsPerMeter;
-            // Use sensor heading for movement.
-            // To make the displacement appear "forward" in the rotated view,
-            // we update world coordinates as follows:
-            // When heading = 0 (north): move upward => userY decreases.
-            // When heading = 90 (east): move right => userX increases.
-            // Thus, update: dx = stepPx * sin(heading) and dy = - stepPx * cos(heading).
+            // Calculate displacement using sensor heading.
             const rad = heading * Math.PI / 180;
-            userX += - stepPx * Math.sin(rad);
-            userY += - stepPx * Math.cos(rad);
+            userX += -stepPx * Math.sin(rad);
+            userY += -stepPx * Math.cos(rad);
             trajectoryPoints.push({ x: userX, y: userY });
             document.getElementById("offsetX").innerText = userX.toFixed(1);
             document.getElementById("offsetY").innerText = userY.toFixed(1);
