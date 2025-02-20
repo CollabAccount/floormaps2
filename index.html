@@ -227,52 +227,15 @@
     };
 
     // B) CLICK CANVAS => set starting position
-    // canvas.addEventListener("click", (e) => {
-    //   const rect = canvas.getBoundingClientRect();
-    //   userX = e.clientX - rect.left;
-    //   userY = e.clientY - rect.top;
-
-    //   stepCount = 0;
-    //   trajectoryPoints = [];
-    //   addTrajectoryPoint(userX, userY);
-
-    //   drawEverything();
-    // });
     canvas.addEventListener("click", (e) => {
       const rect = canvas.getBoundingClientRect();
       userX = e.clientX - rect.left;
       userY = e.clientY - rect.top;
-    
-      // Reset trajectory and step count
+
       stepCount = 0;
       trajectoryPoints = [];
       addTrajectoryPoint(userX, userY);
-    
-      // Determine distances to each edge of the canvas
-      const dTop = userY;
-      const dBottom = canvas.height - userY;
-      const dLeft = userX;
-      const dRight = canvas.width - userX;
-      const minDist = Math.min(dTop, dBottom, dLeft, dRight);
-    
-      // Map closest edge to a desired initial heading (in degrees)
-      // Canvas coordinate system: 0° is right, 90° is down, 180° is left, 270° is up.
-      let desiredInitialHeading;
-      if (minDist === dTop) {
-        desiredInitialHeading = 90;   // Near top edge → start moving down into the image
-      } else if (minDist === dBottom) {
-        desiredInitialHeading = 270;  // Near bottom edge → start moving up into the image
-      } else if (minDist === dLeft) {
-        desiredInitialHeading = 0;    // Near left edge → start moving right
-      } else if (minDist === dRight) {
-        desiredInitialHeading = 180;  // Near right edge → start moving left
-      }
-    
-      // Calibrate heading so that effective heading equals the desired direction.
-      // Effective heading = sensor heading - baseHeading, so we set:
-      baseHeading = heading - desiredInitialHeading;
-      useCalibratedHeading = true;
-    
+
       drawEverything();
     });
 
