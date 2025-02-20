@@ -237,7 +237,7 @@
     
     // C) Device orientation: update sensor heading.
     window.addEventListener("deviceorientation", (event) => {
-      const rawHeading = event.webkitCompassHeading || 0;
+      const rawHeading = event.alpha || 0;
       heading = headingKF.filter(rawHeading);
       document.getElementById("headingDeg").innerText = heading.toFixed(2);
       drawEverything();
