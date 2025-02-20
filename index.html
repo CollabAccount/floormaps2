@@ -169,15 +169,15 @@
         let effectiveHeading = useCalibratedHeading ? (heading - baseHeading) : heading;
         effectiveHeading = (effectiveHeading + 360) % 360;
         // Map observed ranges to fixed directions:
-        if (effectiveHeading >= 90 && effectiveHeading <= 130) {
-          effectiveHeading = 270;      // Upper edge → y positive (downward)
-        } else if (effectiveHeading >= 0 && effectiveHeading <= 50) {
-          effectiveHeading = 0;       // Right edge → x positive
-        } else if (effectiveHeading >= 260 && effectiveHeading <= 310) {
-          effectiveHeading = 90;     // Bottom edge → y negative (upward)
-        } else if (effectiveHeading >= 170 && effectiveHeading <= 230) {
-          effectiveHeading = 180;     // Left edge → x negative
-        }
+        // if (effectiveHeading >= 90 && effectiveHeading <= 130) {
+        //   effectiveHeading = 270;      // Upper edge → y positive (downward)
+        // } else if (effectiveHeading >= 0 && effectiveHeading <= 50) {
+        //   effectiveHeading = 0;       // Right edge → x positive
+        // } else if (effectiveHeading >= 260 && effectiveHeading <= 310) {
+        //   effectiveHeading = 90;     // Bottom edge → y negative (upward)
+        // } else if (effectiveHeading >= 170 && effectiveHeading <= 230) {
+        //   effectiveHeading = 180;     // Left edge → x negative
+        // }
         const rad = effectiveHeading * Math.PI / 180;
         const arrowLen = 15; // arrow length in pixels
 
